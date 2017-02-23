@@ -10,32 +10,32 @@ typedef struct {
 	double mass, // kilograms
 			radius, // meters
 			x, y, z, // position (meters)
-			dx, dy, dz; // velocity (meters/second)
-} Body;
+			vx, vy, vz; // velocity (meters/second)
+} body_t;
 
-Body *bodies;
+body_t *bodies;
 
-float distance(Body b1, Body b2) {
+float distance(body_t b1, body_t b2) {
 	double xdiff = b1.x - b2.x;
 	double ydiff = b1.y - b2.y;
 	double zdiff = b1.z - b2.z;
 	return sqrt(xdiff * xdiff + ydiff * ydiff + zdiff * zdiff);
 }
 
-int collided(Body b1, Body b2) {
+int collided(body_t b1, body_t b2) {
 	return distance(b1, b2) < b1.radius + b2.radius;
 }
 
 void accelerateBodies() {
 	for(int i = 0; i < n; i++) {
-		Body b = bodies[i];
+		body_t b = bodies[i];
 		//TODO: use n other bodies to accelerate this one
 	}
 }
 
 void moveBodies() {
 	for(int i = 0; i < n; i++) {
-		Body b = bodies[i];
+		body_t b = bodies[i];
 		b.x += b.dx;
 		b.y += b.dy;
 		b.z += b.dz;
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// Initialize bodies
-	bodies = (Body *)malloc(n * sizeof(Body));
+	bodies = (body_t *)malloc(n * sizeof(body_t));
 	//TODO: Further initialize bodies
 	
 	while(steps > 0) {
