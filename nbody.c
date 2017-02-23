@@ -36,15 +36,9 @@ void accelerateBodies() {
 void moveBodies() {
 	for(int i = 0; i < n; i++) {
 		body_t b = bodies[i];
-<<<<<<< HEAD
 		b.x += b.vx;
 		b.y += b.vy;
 		b.z += b.vz;
-=======
-		b.x += b.dx;
-		b.y += b.dy;
-		b.z += b.dz;
->>>>>>> 59a44532899601a47cb93bad57068f564019af37
 	}
 }
 
@@ -72,11 +66,8 @@ int main(int argc, char *argv[]) {
 	
 	// Initialize bodies
 	bodies = (body_t *)malloc(n * sizeof(body_t));
-<<<<<<< HEAD
 	
-=======
-	//TODO: Further initialize bodies
->>>>>>> 59a44532899601a47cb93bad57068f564019af37
+	//TODO: Import bodies
 	
 	while(steps > 0) {
 		accelerateBodies();
