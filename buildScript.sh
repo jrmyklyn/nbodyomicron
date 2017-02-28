@@ -1,2 +1,2 @@
 #!/bin/bash
-gcc -pthread -lm -o nbody.out nbody.c
+gcc -pthread nbody.c -lGL -lGLU -lglut -lm -o nbody.out

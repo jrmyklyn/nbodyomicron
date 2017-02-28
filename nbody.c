@@ -1,83 +1,120 @@
-#include <stdlib.h>
-#include <stdio.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <GL/glut.h>
 #include <unistd.h>
 
 int n = 2;
-double dt = 60*60*24;
-int steps = 27;
+double dt = 60 * 60; // seconds
+int steps = 24 * 27;
+double angle = 0.0;
 
-#define G_CONST 6.67E-20
+#define GRAVITY_CONST 6.67408E-20
 
 typedef struct {
-	double mass, // kilograms
-			radius, // meters
-			x, y, z, // position (meters)
-			vx, vy, vz; // velocity (meters/second)
+	double mass, // kg
+			radius, // km
+			x, y, z, // km
+			vx, vy, vz; // km/s
 } body_t;
 
 body_t *bodies;
 
-// void printBody(body_t* b){
-	// printf("POS |x=%.5e y=%.5e z=%.5e|", b.x, b.y, b.z);
-// }
-
-void initBody(body_t b){
-	b.mass = 0;
-	b.x = 0;
-	b.y = 0;
-	b.z = 0;
-	b.vx = 0;
-	b.vy = 0;
-	b.vz = 0;
-}
-double distance(body_t b1, body_t b2) {
-	double xdiff = b1.x - b2.x;
-	double ydiff = b1.y - b2.y;
-	double zdiff = b1.z - b2.z;
-	return sqrt(xdiff * xdiff + ydiff * ydiff + zdiff * zdiff);
-}
-
-double distanceComponent(double a, double b){
-	return sqrt(a*a + b*b);
-}
-
-int collided(body_t b1, body_t b2) {
-	return distance(b1, b2) < b1.radius + b2.radius;
+void printBody(body_t b, char *name){
+	printf("%s  position=(%.5e, %.5e, %.5e)  velocity=(%.5e, %.5e, %.5e)\n", name, b.x, b.y, b.z, b.vx, b.vy, b.vz);
 }
 
 void accelerateBodies() {
-
 	for(int i = 0; i < n; i++) {
-		double forcex = 0;
-		double forcey = 0;
-		double forcez = 0;
+		body_t *b1 = &(bodies[i]);
+		double accx = 0;
+		double accy = 0;
+		double accz = 0;
 		for(int j = 0; j < n; j++){
+			body_t *b2 = &(bodies[j]);
 			if (j != i){
-				double massgrav = ((G_CONST) * bodies[j].mass);
-				forcex += massgrav / ((bodies[i].x - bodies[j].x) * (bodies[i].x - bodies[j].x)) * (bodies[i].x > bodies[j].x ? -1.0 : 1.0);
-				forcey += massgrav / ((bodies[i].y - bodies[j].y) * (bodies[i].y - bodies[j].y)) * (bodies[i].y > bodies[j].y ? -1.0 : 1.0);;
-				forcez += massgrav / ((bodies[i].z - bodies[j].z) * (bodies[i].z - bodies[j].z)) * (bodies[i].z > bodies[j].z ? -1.0 : 1.0);;
+				double xdiff = b2->x - b1->x;
+				double ydiff = b2->y - b1->y;
+				double zdiff = b2->z - b1->z;
+				double diff = sqrt(xdiff * xdiff + ydiff * ydiff + zdiff * zdiff);
+				double temp = b2->mass / (diff * diff * diff);
+				accx += temp * xdiff;
+				accy += temp * ydiff;
+				accz += temp * zdiff;
 			}
 		}
-		bodies[i].vx += forcex * dt ;
-		bodies[i].vy += forcey * dt;
-		bodies[i].vz += forcez * dt;
+		b1->vx += GRAVITY_CONST * accx * dt ;
+		b1->vy += GRAVITY_CONST * accy * dt;
+		b1->vz += GRAVITY_CONST * accz * dt;
 	}
 }
 
 void moveBodies() {
 	for(int i = 0; i < n; i++) {
-	
-		// body_t *b = &(bodies[i]);
-		bodies[i].x += bodies[i].vx * dt;
-		bodies[i].y += bodies[i].vy * dt;
-		bodies[i].z += bodies[i].vz * dt;
+		body_t *b = &(bodies[i]);
+		b->x += b->vx * dt;
+		b->y += b->vy * dt;
+		b->z += b->vz * dt;
 	}
 }
 
+void displayDraw() {
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glPushMatrix();
+		glRotated(angle, 0, 0, 1);
+		glColor3d(0.0, 1.0, 0.0);
+		glPushMatrix();
+			glTranslated(0.0, 0.0, 0.0);
+			glutSolidSphere(25.0, 50, 50);
+		glPopMatrix();
+		glColor3d(1.0, 0.0, 0.0);
+		glPushMatrix();
+			glTranslated(-50.0, -50.0, -50.0);
+			glutSolidSphere(10.0, 50, 50);
+		glPopMatrix();
+		glPushMatrix();
+			glBegin(GL_LINES);
+			glColor3f(1.0, 0.0, 0.0);
+			glVertex3f(-1000.0, 0.0, 0.0);
+			glVertex3f(1000.0, 0.0, 0.0);
+			glColor3f(0.0, 1.0, 0.0);
+			glVertex3f(0.0, -1000.0, 0.0);
+			glVertex3f(0.0, 1000.0, 0.0);
+			glColor3f(0.0, 0.0, 1.0);
+			glVertex3f(0.0, 0.0, -1000.0);
+			glVertex3f(0.0, 0.0, 1000.0);
+			glEnd();
+		glPopMatrix();
+	glPopMatrix();
+	glutSwapBuffers();
+}
+
+void displayIdle() {
+	angle = fmod(angle + 1.0, 360.0);
+	glutPostRedisplay();
+}
+
+void displayReshape(int width, int height) {
+	glViewport(0, 0, width, height);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	gluPerspective(45, (double)width / (double)height, 500, 1000);
+	gluLookAt(600, 0, 450, 0, 0, 0, 0, 0, 1);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+}
+
+const GLfloat light_ambient[] = {0.0f, 0.0f, 0.0f, 1.0f};
+const GLfloat light_diffuse[] = {1.0f, 1.0f, 1.0f, 1.0f};
+const GLfloat light_specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+const GLfloat light_position[] = {2.0f, 5.0f, 5.0f, 0.0f};
+
+const GLfloat mat_ambient[] = {0.7f, 0.7f, 0.7f, 1.0f};
+const GLfloat mat_diffuse[] = {0.8f, 0.8f, 0.8f, 1.0f};
+const GLfloat mat_specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+const GLfloat high_shininess[] = {100.0f};
+
 int main(int argc, char *argv[]) {
-	
 	// Set up parameters
 	int option;
 	while((option = getopt(argc, argv, "n:s:t:")) != -1) {
@@ -100,15 +137,14 @@ int main(int argc, char *argv[]) {
 	
 	// Initialize bodies
 	bodies = (body_t *)malloc(n * sizeof(body_t));
-	bodies[0].x = -2.67524E4,
-	bodies[0].y = -3.99156E5;
-	bodies[0].z =  3.40877E4;
-	bodies[0].vx =  9.735E-1;
-	bodies[0].vy = -3.777E-02;
-	bodies[0].vz = -3.756E-02;
-	bodies[0].mass = 7.347E22;
-	bodies[0].radius = 0.00000001;
-	
+	bodies[0].x = -2.675244393757571E4;
+	bodies[0].y = -3.991567778823322E5;
+	bodies[0].z = 3.408771797387548E4;
+	bodies[0].vx = 9.735210145581824E-1;
+	bodies[0].vy = -3.777496830110240E-2;
+	bodies[0].vz = -3.756741770019315E-2;
+	bodies[0].mass = 7.34767309E22;
+	bodies[0].radius = 1736;
 	bodies[1].x = 0,
 	bodies[1].y = 0;
 	bodies[1].z = 0;
@@ -117,25 +153,49 @@ int main(int argc, char *argv[]) {
 	bodies[1].vz = 0;
 	bodies[1].mass = 5.972E24;
 	bodies[1].radius = 6371;
-	//TODO: Import bodies
 	
+	// Run program
 	while(steps > 0) {
-		printf("Steps %d | 0 ", steps);
-		// printBody(bodies[0]);
-		// printf("POS |x=%.5e y=%.5e z=%.5e|", bodies[0].x, bodies[0].y, bodies[0].z);
-		// printf(" | 1 ");
-		// // printBody(bodies[1]);
-		// printf("POS |x=%.5e y=%.5e z=%.5e|", bodies[1].x, bodies[1].y, bodies[1].z);
-		// printf("\n");
-		accelerateBodies();
-		// printf("        | 0 ", steps);
-		// printBody(bodies[0]);
-		printf("POS |x=%.5e y=%.5e z=%.5e|", bodies[0].x, bodies[0].y, bodies[0].z);
-		printf(" | 1 ");
-		// printBody(bodies[1]);
-		printf("POS |x=%.5e y=%.5e z=%.5e|", bodies[1].x, bodies[1].y, bodies[1].z);
+		printBody(bodies[0], "Moon");
+		printBody(bodies[1], "Earth");
 		printf("\n");
+		
+		accelerateBodies();
 		moveBodies();
 		steps--;
 	}
+	
+	// Display
+	glutInit(&argc, argv);
+	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
+	glClearColor(1.0, 1.0, 1.0, 1.0);
+	glutInitWindowSize(500, 500);
+	glutInitWindowPosition(50, 50);
+	glutCreateWindow("N-Body Simulation");
+	
+	glutDisplayFunc(displayDraw);
+	glutReshapeFunc(displayReshape);
+	glutIdleFunc(displayIdle);
+	
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	
+	glEnable(GL_LIGHT0);
+	glEnable(GL_NORMALIZE);
+	glEnable(GL_COLOR_MATERIAL);
+	glEnable(GL_LIGHTING);
+	
+	glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+	glLightfv(GL_LIGHT0, GL_POSITION, light_position); 
+	
+	glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+	glMaterialfv(GL_FRONT, GL_SHININESS, high_shininess);
+	
+	glutMainLoop();
 }
