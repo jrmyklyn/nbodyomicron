@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <GL/glut.h>
 #include <unistd.h>
+#include <string.h>
+#include "csvparser.h"
 
 int n = 2;
 double dt = 60 * 60 * 24; // seconds
@@ -123,15 +125,37 @@ void displayReshapeCallback(int width, int height) {
 
 int main(int argc, char *argv[]) {
 	// Set up parameters
+	
 	int option;
-	while((option = getopt(argc, argv, "n:s:t:")) != -1) {
+	char* dataFileName;
+	
+	if (argc < 2){
+		fprintf(stderr, "Use the correct number of args.\n");
+		return 1;
+	}
+	
+	dataFileName = (char*)malloc(strlen(argv[1]));
+	strcpy(dataFileName, argv[1]);
+	
+	FILE *dataFile;
+	//check for file existence
+	dataFile = fopen(dataFileName, "r");
+	if (dataFile == NULL){
+		fprintf(stderr, "File \'%s\' not found in current directory.\n", dataFileName);
+		return 1;
+	}
+	
+	fscanf(dataFile, "%d", &n);
+	if (n <= 1) {
+		fprintf(stderr, "Boring (or impossible) simulation (n=%d). Aborting.\n", n);
+		return 1;
+	}
+	fclose(dataFile);
+	
+	bodies = (body_t *)malloc(n * sizeof(body_t));
+	
+	while((option = getopt(argc, argv, "t:")) != -1) {
 		switch(option) {
-			case 'n':
-				n = atoi(optarg);
-				break;
-			case 's':
-				steps = atoi(optarg);
-				break;
 			case 't':
 				dt = atof(optarg);
 				break;
@@ -143,23 +167,48 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// Load Bodies
-	bodies = (body_t *)malloc(n * sizeof(body_t));
-	bodies[0].x = -2.675244393757571E4;
-	bodies[0].y = -3.991567778823322E5;
-	bodies[0].z = 3.408771797387548E4;
-	bodies[0].vx = 9.735210145581824E-1;
-	bodies[0].vy = -3.777496830110240E-2;
-	bodies[0].vz = -3.756741770019315E-2;
-	bodies[0].mass = 7.34767309E22;
-	bodies[0].radius = 1736;
-	bodies[1].x = 0,
-	bodies[1].y = 0;
-	bodies[1].z = 0;
-	bodies[1].vx = 0;
-	bodies[1].vy = 0;
-	bodies[1].vz = 0;
-	bodies[1].mass = 5.972E24;
-	bodies[1].radius = 6371;
+	int i = 0;
+    CsvParser *csvparser = CsvParser_new("planet_data.csv", ",", 1);
+    CsvRow *row;
+    const CsvRow *header = CsvParser_getHeader(csvparser);
+
+    if (header == NULL) {
+        fprintf(stderr, "%s\n", CsvParser_getErrorMessage(csvparser));
+        return 1;
+    }
+	
+	/* Uncomment the following if we want headers later
+    const char **headerFields = CsvParser_getFields(header);
+    for (i = 0 ; i < CsvParser_getNumFields(header) ; i++) {
+        printf("TITLE: %s\n", headerFields[i]);
+    }
+	*/
+	i = 0;
+    while ((row = CsvParser_getRow(csvparser)) ) {
+        const char **rowFields = CsvParser_getFields(row);
+        bodies[i].mass = atof(rowFields[1]);
+        CsvParser_destroy_row(row);
+		i++;
+    }
+    CsvParser_destroy(csvparser);
+		
+	// if (n == 10) return 1;
+	// bodies[0].x = -2.675244393757571E4;
+	// bodies[0].y = -3.991567778823322E5;
+	// bodies[0].z = 3.408771797387548E4;
+	// bodies[0].vx = 9.735210145581824E-1;
+	// bodies[0].vy = -3.777496830110240E-2;
+	// bodies[0].vz = -3.756741770019315E-2;
+	// bodies[0].mass = 7.34767309E22;
+	// bodies[0].radius = 1736;
+	// bodies[1].x = 0,
+	// bodies[1].y = 0;
+	// bodies[1].z = 0;
+	// bodies[1].vx = 0;
+	// bodies[1].vy = 0;
+	// bodies[1].vz = 0;
+	// bodies[1].mass = 5.972E24;
+	// bodies[1].radius = 6371;
 	
 	// Setup Display Window
 	glutInit(&argc, argv);
