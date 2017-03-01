@@ -309,6 +309,7 @@ int main(int argc, char *argv[]) {
 	// Initialize Display Callbacks
 	glutDisplayFunc(displayDrawCallback);
 	glutReshapeFunc(displayReshapeCallback);
+	glutIdleFunc(displayDrawCallback);
 	
 	// Setup Lighting
 	glEnable(GL_LIGHT0);
