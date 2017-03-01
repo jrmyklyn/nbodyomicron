@@ -201,7 +201,7 @@ void displayReshapeCallback(int width, int height) {
 
 //Main Function
 int main(int argc, char *argv[]) {
-	/*
+	
 	// Set up parameters
 	char* dataFileName;
 	if (argc < 2){
@@ -241,7 +241,7 @@ int main(int argc, char *argv[]) {
 	// Load Bodies
 	int i = 0;
 	bodies = (body_t *)malloc(n * sizeof(body_t));
-	CsvParser *csvparser = CsvParser_new("planet_data.csv", ",", 1);
+	CsvParser *csvparser = CsvParser_new(dataFileName, ",", 1);
 	CsvRow *row;
 	const CsvRow *header = CsvParser_getHeader(csvparser);
 	if(header == NULL) {
@@ -255,16 +255,29 @@ int main(int argc, char *argv[]) {
 	//}
 	
 	i = 0;
-	while((row = CsvParser_getRow(csvparser))) {
+	//while((row = CsvParser_getRow(csvparser))) {
+	while(i < n) { //this reads by N rather than lines in file
+		row = CsvParser_getRow(csvparser);
 		const char **rowFields = CsvParser_getFields(row);
+		//read in a bunch of data
 		bodies[i].mass = atof(rowFields[1]);
+		bodies[i].radius = atof(rowFields[2]);
+		bodies[i].x = atof(rowFields[3]);
+		bodies[i].y = atof(rowFields[4]);
+		bodies[i].z = atof(rowFields[5]);
+		bodies[i].vx = atof(rowFields[6]);
+		bodies[i].vy = atof(rowFields[7]);
+		bodies[i].vz = atof(rowFields[8]);
 		CsvParser_destroy_row(row);
 		i++;
 	}
 	CsvParser_destroy(csvparser);
-	*/
 	
-	///*
+	//~ for(int i = 0; i < n; i++){
+		//~ printf("%e\n", bodies[i].mass);
+	//~ }
+	
+	/*
 	n = 2;
 	bodies = (body_t *)malloc(n * sizeof(body_t));
 	bodies[0].x = -2.675244393757571E4;
@@ -283,7 +296,7 @@ int main(int argc, char *argv[]) {
 	bodies[1].vz = 0;
 	bodies[1].mass = 5.972E24;
 	bodies[1].radius = 6371;
-	//*/
+	*/
 	
 	// Setup Display Window
 	glutInit(&argc, argv);
