@@ -5,8 +5,8 @@
 #include <unistd.h>
 
 int n = 2;
-double dt = 60 * 60; // seconds
-int steps = 24 * 27;
+double dt = 60 * 60 * 24; // seconds
+int steps = 27;
 double angle = 0;
 double aspectRatio = 0;
 
@@ -61,31 +61,28 @@ void moveBodies() {
 }
 
 void displayDrawCallback() {
-	// Set camera angle, height, width, depth
-	double maxDistance = 200;
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	if(aspectRatio < 1)
-		glFrustum(-maxDistance, maxDistance, -maxDistance / aspectRatio, maxDistance / aspectRatio, 2 * maxDistance, 4 * maxDistance);
-	else
-		glFrustum(-maxDistance * aspectRatio, maxDistance * aspectRatio, -maxDistance, maxDistance, 2 * maxDistance, 4 * maxDistance);
-	gluLookAt(3 * maxDistance * cos(VIEW_ANGLE), 0, 3 * maxDistance * sin(VIEW_ANGLE), 0, 0, 0, 0, 0, 1);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	double maxDistance = 0;
+	accelerateBodies();
+	moveBodies();
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glPushMatrix();
 		glRotated(angle, 0, 0, 1);
-		glColor3d(0, 1, 0);
-		glPushMatrix();
-			glTranslated(0, 0, 0);
-			glutSolidSphere(30, 20, 20);
-		glPopMatrix();
-		glColor3d(1, 0, 0);
-		glPushMatrix();
-			glTranslated(-50, -50, -50);
-			glutSolidSphere(20, 20, 20);
-		glPopMatrix();
+		for(int i = 0; i < n; i++) {
+			body_t b = bodies[i];
+			double distance = sqrt(b.x * b.x + b.y * b.y + b.z * b.z) + b.radius;
+			if(distance > maxDistance)
+				maxDistance = distance;
+			glColor3d(0, 0, 1);
+			glBegin(GL_LINES);
+				glVertex3f(b.x, b.y, b.z);
+				glVertex3f(b.x, b.y, 0);
+			glEnd();
+			glPushMatrix();
+				glTranslated(b.x, b.y, b.z);
+				glutSolidSphere(b.radius, 20, 20);
+			glPopMatrix();
+		}
 		glPushMatrix();
 			glBegin(GL_LINES);
 			glColor3f(1, 0, 0);
@@ -101,10 +98,21 @@ void displayDrawCallback() {
 		glPopMatrix();
 	glPopMatrix();
 	glutSwapBuffers();
+	
+	// Set camera angle, height, width, depth
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	if(aspectRatio < 1)
+		glFrustum(-maxDistance, maxDistance, -maxDistance / aspectRatio, maxDistance / aspectRatio, 2 * maxDistance, 4 * maxDistance);
+	else
+		glFrustum(-maxDistance * aspectRatio, maxDistance * aspectRatio, -maxDistance, maxDistance, 2 * maxDistance, 4 * maxDistance);
+	gluLookAt(3 * maxDistance * cos(VIEW_ANGLE), 0, 3 * maxDistance * sin(VIEW_ANGLE), 0, 0, 0, 0, 0, 1);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 }
 
 void displayIdleCallback() {
-	angle = fmod(angle + 1.0, 360.0);
+	angle = fmod(angle + 1, 360);
 	glutPostRedisplay();
 }
 
@@ -152,17 +160,6 @@ int main(int argc, char *argv[]) {
 	bodies[1].vz = 0;
 	bodies[1].mass = 5.972E24;
 	bodies[1].radius = 6371;
-	
-	// Start Model
-	while(steps > 0) {
-		printBody(bodies[0], "Moon");
-		printBody(bodies[1], "Earth");
-		printf("\n");
-		
-		accelerateBodies();
-		moveBodies();
-		steps--;
-	}
 	
 	// Setup Display Window
 	glutInit(&argc, argv);
