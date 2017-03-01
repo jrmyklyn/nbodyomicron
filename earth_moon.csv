@@ -1,0 +1,3 @@
+2 Name,Mass (kg),Radius (km),X Position (km),Y Position (km),Z Position (km),X Velocity (km/s),Y Velocity (km/s),Z Velocity (km/s)
+Moon,5.972E24,1736,26752.4439375757,399156.777882332,34087.7179738755,0.973521014558182,-0.037774968301102,-0.037567417700193
+Earth,7.34767309E22,6371,0,0,0,0,0,0
