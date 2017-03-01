@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
+#include "csvparser.h"
 
 
 
@@ -29,12 +31,14 @@ typedef struct {
 
 // Globals
 double dt = 60 * 60 * 24; // 1 day by default
+double maxDistance = 0;
+int windowID;
 double aspectRatio;
 body_t *bodies;
-int n = 2;
+int n;
 int bodiesIndex;
 pthread_mutex_t indexMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t positionsMutex = PTHREAD_MUTEX_INITIALIZER;
+//pthread_mutex_t positionsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 
@@ -78,7 +82,7 @@ void *accelerateBodyThread(void *param) {
 void accelerateBodies() {
 	// Start threads
 	bodiesIndex = 0;
-	int num_threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
+	int num_threads = sysconf(_SC_NPROCESSORS_ONLN);
 	pthread_t *threads = (pthread_t *)malloc(num_threads * sizeof(pthread_t));
 	for(int i = 0; i < num_threads; i++) {
 		int rc = pthread_create(&threads[i], NULL, accelerateBodyThread, NULL);
@@ -100,25 +104,31 @@ void accelerateBodies() {
 }
 
 void moveBodies() {
-	pthread_mutex_lock(&positionsMutex);
+	//pthread_mutex_lock(&positionsMutex);
 	for(int i = 0; i < n; i++) {
 		body_t *b = &(bodies[i]);
 		b->x += b->vx * dt;
 		b->y += b->vy * dt;
 		b->z += b->vz * dt;
+		double originDistance = sqrt(b->x * b->x + b->y * b->y + b->z * b->z) + b->radius;
+		if(originDistance > maxDistance)
+			maxDistance = originDistance;
 	}
-	pthread_mutex_unlock(&positionsMutex);
+	//pthread_mutex_unlock(&positionsMutex);
 }
 
 void *runSimulationThread(void *param) {
+	struct timespec start, end;
 	while(1) {
-		clock_t startTime = clock();
+		clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 		accelerateBodies();
 		moveBodies();
+		glutSetWindow(windowID);
 		glutPostRedisplay();
-		long sleepTime = 1000000 / UPDATES_PER_SECOND + startTime - clock();
+		clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+		long sleepTime = 1000000 / UPDATES_PER_SECOND + (start.tv_sec - end.tv_sec) * 1000000 + (start.tv_nsec - end.tv_nsec) / 1000;
 		if(sleepTime > 0)
-			usleep(sleepTime);
+			usleep(sleepTime * 1000000 / CLOCKS_PER_SEC);
 	}
 }
 
@@ -126,21 +136,17 @@ void *runSimulationThread(void *param) {
 
 // Display Functions
 void displayDrawCallback() {
-	double maxDistance = 0;
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glPushMatrix();
 		// Rotate Model
-		//printf("%f\n", fmod(ROTATION_DEGREES_PER_SECOND * clock() / 1000000, 360));
-		//glRotated(fmod(ROTATION_DEGREES_PER_SECOND * clock() / 1000000, 360), 0, 0, 1);
+		struct timespec t;
+		clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+		glRotated(fmod(ROTATION_DEGREES_PER_SECOND * (t.tv_sec + t.tv_nsec / 1000000000.0), 360), 0, 0, 1);
 		
 		// Draw Bodies
-		pthread_mutex_lock(&positionsMutex);
+		//pthread_mutex_lock(&positionsMutex);
 		for(int i = 0; i < n; i++) {
 			body_t b = bodies[i];
-			
-			double distance = sqrt(b.x * b.x + b.y * b.y + b.z * b.z) + b.radius;
-			if(distance > maxDistance)
-				maxDistance = distance;
 			
 			// Draw Body
 			glColor3d(0, 0, 1);
@@ -155,7 +161,7 @@ void displayDrawCallback() {
 				glVertex3f(b.x, b.y, 0);
 			glEnd();
 		}
-		pthread_mutex_unlock(&positionsMutex);
+		//pthread_mutex_unlock(&positionsMutex);
 		
 		// Draw axis
 		glPushMatrix();
@@ -195,7 +201,16 @@ void displayReshapeCallback(int width, int height) {
 
 //Main Function
 int main(int argc, char *argv[]) {
+	/*
 	// Set up parameters
+	char* dataFileName;
+	if (argc < 2){
+		fprintf(stderr, "Use the correct number of args.\n");
+		return 1;
+	}
+	dataFileName = (char*)malloc(strlen(argv[1]));
+	strcpy(dataFileName, argv[1]);
+	
 	int option;
 	while((option = getopt(argc, argv, "t:")) != -1) {
 		switch(option) {
@@ -209,7 +224,48 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	
+	// Check File
+	FILE *dataFile;
+	dataFile = fopen(dataFileName, "r");
+	if (dataFile == NULL){
+		fprintf(stderr, "File \'%s\' not found in current directory.\n", dataFileName);
+		return 1;
+	}
+	fscanf(dataFile, "%d", &n);
+	if (n <= 1) {
+		fprintf(stderr, "Boring (or impossible) simulation (n=%d). Aborting.\n", n);
+		return 1;
+	}
+	fclose(dataFile);
+	
 	// Load Bodies
+	int i = 0;
+	bodies = (body_t *)malloc(n * sizeof(body_t));
+	CsvParser *csvparser = CsvParser_new("planet_data.csv", ",", 1);
+	CsvRow *row;
+	const CsvRow *header = CsvParser_getHeader(csvparser);
+	if(header == NULL) {
+		fprintf(stderr, "%s\n", CsvParser_getErrorMessage(csvparser));
+		return 1;
+	}
+	// Uncomment the following if we want headers later
+	//const char **headerFields = CsvParser_getFields(header);
+	//for (i = 0 ; i < CsvParser_getNumFields(header) ; i++) {
+	//	printf("TITLE: %s\n", headerFields[i]);
+	//}
+	
+	i = 0;
+	while((row = CsvParser_getRow(csvparser))) {
+		const char **rowFields = CsvParser_getFields(row);
+		bodies[i].mass = atof(rowFields[1]);
+		CsvParser_destroy_row(row);
+		i++;
+	}
+	CsvParser_destroy(csvparser);
+	*/
+	
+	///*
+	n = 2;
 	bodies = (body_t *)malloc(n * sizeof(body_t));
 	bodies[0].x = -2.675244393757571E4;
 	bodies[0].y = -3.991567778823322E5;
@@ -227,6 +283,7 @@ int main(int argc, char *argv[]) {
 	bodies[1].vz = 0;
 	bodies[1].mass = 5.972E24;
 	bodies[1].radius = 6371;
+	//*/
 	
 	// Setup Display Window
 	glutInit(&argc, argv);
@@ -234,7 +291,7 @@ int main(int argc, char *argv[]) {
 	glClearColor(1, 1, 1, 1);
 	glutInitWindowSize(500, 500);
 	glutInitWindowPosition(50, 50);
-	glutCreateWindow("N-Body Simulation");
+	windowID = glutCreateWindow("N-Body Simulation");
 	
 	// Initialize Display Callbacks
 	glutDisplayFunc(displayDrawCallback);
