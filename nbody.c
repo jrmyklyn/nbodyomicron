@@ -100,6 +100,8 @@ void accelerateBodies() {
 			exit(-1);
 		}
 	}
+	
+	// Clean up
 	free(threads);
 }
 
@@ -123,8 +125,6 @@ void *runSimulationThread(void *param) {
 		clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 		accelerateBodies();
 		moveBodies();
-		glutSetWindow(windowID);
-		glutPostRedisplay();
 		clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 		long sleepTime = 1000000 / UPDATES_PER_SECOND + (start.tv_sec - end.tv_sec) * 1000000 + (start.tv_nsec - end.tv_nsec) / 1000;
 		if(sleepTime > 0)
@@ -194,6 +194,7 @@ void displayDrawCallback() {
 
 void displayReshapeCallback(int width, int height) {
 	glViewport(0, 0, width, height);
+	//TODO: add mutex?
 	aspectRatio = (double)width / (double)height;
 }
 
@@ -273,30 +274,13 @@ int main(int argc, char *argv[]) {
 	}
 	CsvParser_destroy(csvparser);
 	
-	//~ for(int i = 0; i < n; i++){
-		//~ printf("%e\n", bodies[i].mass);
-	//~ }
-	
-	/*
-	n = 2;
-	bodies = (body_t *)malloc(n * sizeof(body_t));
-	bodies[0].x = -2.675244393757571E4;
-	bodies[0].y = -3.991567778823322E5;
-	bodies[0].z = 3.408771797387548E4;
-	bodies[0].vx = 9.735210145581824E-1;
-	bodies[0].vy = -3.777496830110240E-2;
-	bodies[0].vz = -3.756741770019315E-2;
-	bodies[0].mass = 7.34767309E22;
-	bodies[0].radius = 1736;
-	bodies[1].x = 0,
-	bodies[1].y = 0;
-	bodies[1].z = 0;
-	bodies[1].vx = 0;
-	bodies[1].vy = 0;
-	bodies[1].vz = 0;
-	bodies[1].mass = 5.972E24;
-	bodies[1].radius = 6371;
-	*/
+	// Start Simulation Thread
+	pthread_t model_thread;
+	int rc = pthread_create(&model_thread, NULL, runSimulationThread, NULL);
+	if(rc) {
+		printf("ERROR: Return code from pthread_create() is %d.", rc);
+		exit(-1);
+	}
 	
 	// Setup Display Window
 	glutInit(&argc, argv);
@@ -309,7 +293,7 @@ int main(int argc, char *argv[]) {
 	// Initialize Display Callbacks
 	glutDisplayFunc(displayDrawCallback);
 	glutReshapeFunc(displayReshapeCallback);
-	glutIdleFunc(displayDrawCallback);
+	glutIdleFunc(glutPostRedisplay);
 	
 	// Setup Lighting
 	glEnable(GL_LIGHT0);
@@ -321,16 +305,8 @@ int main(int argc, char *argv[]) {
 	glEnable(GL_CULL_FACE); // Enabled for efficiency
 	glEnable(GL_DEPTH_TEST); // Enabled for the depth buffer
 	
-	// Start Simulation Thread
-	pthread_t model_thread;
-	int rc = pthread_create(&model_thread, NULL, runSimulationThread, NULL);
-	if(rc) {
-		printf("ERROR: Return code from pthread_create() is %d.", rc);
-		exit(-1);
-	}
-	
 	// Start Display
-	glutMainLoop();
+	glutMainLoop(); // This function never returns cause yolo
 	
 	// Clean Up
 	free(bodies);
