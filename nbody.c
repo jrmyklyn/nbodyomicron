@@ -1,4 +1,5 @@
 #include <GL/glut.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -10,12 +11,16 @@
 
 
 
-// Constants
+// Model Constants
 #define GRAVITY_CONST 6.67408E-20 // Converted from m to km
-#define VIEW_ANGLE (M_PI/6.0) // Looking down from (theta) degrees
-#define VIEW_DISTANCE_FACTOR 3 // Looking at origin from (factor) times as far as the farthest body
+#define UPDATES_PER_SECOND 15
+
+// Display Constants
+#define VIEW_ANGLE (M_PI/6.0) // Looking down on the model from (theta) degrees
 #define ROTATION_DEGREES_PER_SECOND 5.0
-#define UPDATES_PER_SECOND 10
+#define VIEW_DISTANCE_FACTOR 3 // Looking at origin from (factor) times as far as the farthest body
+#define LARGEST_BODY_MIN_RADIUS 0.05 // Minimum radius of the largest body relative to the display size
+#define SMALLEST_BODY_MIN_RADIUS 0.005 // Minimum radius of the smallest body relative to the display size
 
 
 
@@ -29,33 +34,39 @@ typedef struct {
 
 
 
-// Globals
-double dt = 60 * 60 * 24; // 1 day by default
-double maxDistance = 0;
-int windowID;
-double aspectRatio;
-body_t *bodies;
-int n;
-int bodiesIndex;
-pthread_mutex_t indexMutex = PTHREAD_MUTEX_INITIALIZER;
-//pthread_mutex_t positionsMutex = PTHREAD_MUTEX_INITIALIZER;
+// Model Globals
+double dt = 60 * 60 * 24 * 7; // 1 day by default
+long iterations = 0;
+body_t *bodies; // Array for body data
+int numBodies; // The total number of bodies
+int bodiesIndex; // The body index that the next thread will use
+pthread_mutex_t indexMutex = PTHREAD_MUTEX_INITIALIZER; // Mutually exlude bodiesIndex for each model thread
+
+// Display Globals
+double maxDistance = 0; // The distance of the furthest body from the origin for display purposes
+double maxBodyRadius = INT_MIN; // The minimum body size for display purposes
+double minBodyRadius = INT_MAX; // The maximum body size for display purposes
+int windowWidth;
+int windowHeight;
+double aspectRatio; // Window aspect ratio
+pthread_mutex_t positionsMutex = PTHREAD_MUTEX_INITIALIZER; // Mutually exlude body position reads in the display thread and from writes in the model thread
 
 
 
 // Simulation Functions
 void *accelerateBodyThread(void *param) {
-	int i = 0;
+	int i;
 	pthread_mutex_lock(&indexMutex);
-	i = bodiesIndex;
-	bodiesIndex++;
+		i = bodiesIndex;
+		bodiesIndex++;
 	pthread_mutex_unlock(&indexMutex);
 	
-	while(i < n) {
+	while(i < numBodies) {
 		body_t *b1 = &(bodies[i]);
 		double accx = 0;
 		double accy = 0;
 		double accz = 0;
-		for(int j = 0; j < n; j++){
+		for(int j = 0; j < numBodies; j++){
 			body_t *b2 = &(bodies[j]);
 			if (j != i){
 				double xdiff = b2->x - b1->x;
@@ -73,8 +84,8 @@ void *accelerateBodyThread(void *param) {
 		b1->vz += GRAVITY_CONST * accz * dt;
 		
 		pthread_mutex_lock(&indexMutex);
-		i = bodiesIndex;
-		bodiesIndex++;
+			i = bodiesIndex;
+			bodiesIndex++;
 		pthread_mutex_unlock(&indexMutex);
 	}
 }
@@ -106,25 +117,34 @@ void accelerateBodies() {
 }
 
 void moveBodies() {
-	//pthread_mutex_lock(&positionsMutex);
-	for(int i = 0; i < n; i++) {
-		body_t *b = &(bodies[i]);
-		b->x += b->vx * dt;
-		b->y += b->vy * dt;
-		b->z += b->vz * dt;
-		double originDistance = sqrt(b->x * b->x + b->y * b->y + b->z * b->z) + b->radius;
-		if(originDistance > maxDistance)
-			maxDistance = originDistance;
-	}
-	//pthread_mutex_unlock(&positionsMutex);
+	// We do not multithread here because it is a simple computation and threading and mutual exclusion would make it unnecessarily complex.
+	pthread_mutex_lock(&positionsMutex);
+		for(int i = 0; i < numBodies; i++) {
+			body_t *b = &(bodies[i]);
+			b->x += b->vx * dt;
+			b->y += b->vy * dt;
+			b->z += b->vz * dt;
+			
+			// While we are here, we might as well compute the maximum distance from the origin for viewing purposes
+			double originDistance = sqrt(b->x * b->x + b->y * b->y + b->z * b->z) + b->radius;
+			if(originDistance > maxDistance)
+				maxDistance = originDistance;
+		}
+	pthread_mutex_unlock(&positionsMutex);
 }
 
 void *runSimulationThread(void *param) {
 	struct timespec start, end;
 	while(1) {
+		// Get simulation start time
 		clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+		
+		// Run simulation
 		accelerateBodies();
 		moveBodies();
+		iterations++;
+		
+		// Wait until it is time to update again
 		clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 		long sleepTime = 1000000 / UPDATES_PER_SECOND + (start.tv_sec - end.tv_sec) * 1000000 + (start.tv_nsec - end.tv_nsec) / 1000;
 		if(sleepTime > 0)
@@ -143,58 +163,104 @@ void displayDrawCallback() {
 		clock_gettime(CLOCK_MONOTONIC_RAW, &t);
 		glRotated(fmod(ROTATION_DEGREES_PER_SECOND * (t.tv_sec + t.tv_nsec / 1000000000.0), 360), 0, 0, 1);
 		
-		// Draw Bodies
-		//pthread_mutex_lock(&positionsMutex);
-		for(int i = 0; i < n; i++) {
-			body_t b = bodies[i];
+		pthread_mutex_lock(&positionsMutex);
+			// Compute Radius Resize Parameters
+			double rFactor = 1;
+			double rConstant = 0;
+			double lbmr = LARGEST_BODY_MIN_RADIUS * maxDistance;
+			double sbmr = SMALLEST_BODY_MIN_RADIUS * maxDistance;
+			if(maxBodyRadius < lbmr) // Favor proportional increases required by the largest body
+				rFactor = lbmr / maxBodyRadius;
+			if(rFactor * minBodyRadius < sbmr) { // Check smallest body requirements and adjust as needed
+				rFactor = (lbmr - sbmr) / (maxBodyRadius - minBodyRadius);
+				rConstant = sbmr - rFactor * minBodyRadius;
+			}
 			
-			// Draw Body
-			glColor3d(0, 0, 1);
-			glPushMatrix();
-				glTranslated(b.x, b.y, b.z);
-				glutSolidSphere(b.radius, 20, 20);
-			glPopMatrix();
+			// Draw Bodies
+			for(int i = 0; i < numBodies; i++) {
+				body_t b = bodies[i];
+				
+				// Draw Body
+				glColor3d(0, 1, 0);
+				glPushMatrix();
+					glTranslated(b.x, b.y, b.z);
+					glutSolidSphere(rFactor * b.radius + rConstant, 10, 10);
+				glPopMatrix();
+				
+				// Draw line from body to x-y plane to better illustrate depth
+				glColor3d(1, 0, 0);
+				glBegin(GL_LINES);
+					glVertex3d(b.x, b.y, b.z);
+					glVertex3d(b.x, b.y, 0);
+				glEnd();
+			}
 			
-			// Draw line from body to x-y plane
-			glBegin(GL_LINES);
-				glVertex3f(b.x, b.y, b.z);
-				glVertex3f(b.x, b.y, 0);
-			glEnd();
-		}
-		//pthread_mutex_unlock(&positionsMutex);
+			// Save a local copy of maxDistance
+			double localMD = maxDistance;
+		pthread_mutex_unlock(&positionsMutex);
 		
-		// Draw axis
+		// Draw axes
 		glPushMatrix();
 			glBegin(GL_LINES);
-			glColor3f(1, 0, 0);
-			glVertex3f(-maxDistance, 0, 0);
-			glVertex3f(maxDistance, 0, 0);
-			glColor3f(0, 1, 0);
-			glVertex3f(0, -maxDistance, 0);
-			glVertex3f(0, maxDistance, 0);
-			glColor3f(0, 0, 1);
-			glVertex3f(0, 0, -maxDistance);
-			glVertex3f(0, 0, maxDistance);
+			glColor3d(1, 0, 0);
+			glVertex3d(-localMD, 0, 0);
+			glVertex3d(localMD, 0, 0);
+			glColor3d(0, 1, 0);
+			glVertex3d(0, -localMD, 0);
+			glVertex3d(0, localMD, 0);
+			glColor3d(0, 0, 1);
+			glVertex3d(0, 0, -localMD);
+			glVertex3d(0, 0, localMD);
 			glEnd();
 		glPopMatrix();
 	glPopMatrix();
-	glutSwapBuffers();
 	
 	// Set camera angle, height, width, depth
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	if(aspectRatio < 1)
-		glFrustum(-maxDistance, maxDistance, -maxDistance / aspectRatio, maxDistance / aspectRatio, (VIEW_DISTANCE_FACTOR - 1) * maxDistance, (VIEW_DISTANCE_FACTOR + 1) * maxDistance);
+		glFrustum(-localMD, localMD, -localMD / aspectRatio, localMD / aspectRatio, (VIEW_DISTANCE_FACTOR - 1) * localMD, (VIEW_DISTANCE_FACTOR + 1) * localMD);
 	else
-		glFrustum(-maxDistance * aspectRatio, maxDistance * aspectRatio, -maxDistance, maxDistance, (VIEW_DISTANCE_FACTOR - 1) * maxDistance, (VIEW_DISTANCE_FACTOR + 1) * maxDistance);
-	gluLookAt(VIEW_DISTANCE_FACTOR * maxDistance * cos(VIEW_ANGLE), 0, VIEW_DISTANCE_FACTOR * maxDistance * sin(VIEW_ANGLE), 0, 0, 0, 0, 0, 1);
+		glFrustum(-localMD * aspectRatio, localMD * aspectRatio, -localMD, localMD, (VIEW_DISTANCE_FACTOR - 1) * localMD, (VIEW_DISTANCE_FACTOR + 1) * localMD);
+	gluLookAt(VIEW_DISTANCE_FACTOR * localMD * cos(VIEW_ANGLE), 0, VIEW_DISTANCE_FACTOR * localMD * sin(VIEW_ANGLE), 0, 0, 0, 0, 0, 1);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+	
+	// Print Text
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+		glLoadIdentity();
+		gluOrtho2D(0, windowWidth, 0, windowHeight);
+		glMatrixMode(GL_MODELVIEW);
+		glColor3d(1, 1, 1);
+		glPushMatrix();
+			glLoadIdentity();
+			glRasterPos2i(10, 10);
+			
+			char str[30];
+			double timeElapsed = iterations * dt;
+			long days = (long)timeElapsed / (60 * 60 * 24);
+			int hours = (long)timeElapsed / (60 * 60) % 24;
+			int minutes = (long)timeElapsed / 60 % 60;
+			double seconds = fmod(timeElapsed, 60);
+			sprintf(str, "View Radius: %.4e km     Day: %d     Time: %02d:%02d:%05.02f", maxDistance, days, hours, minutes, seconds);
+			for(int i = 0; i < strlen(str); i++)
+				glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, str[i]);
+			
+			glMatrixMode(GL_MODELVIEW);
+		glPopMatrix();
+		glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	
+	glFlush();
+	glutSwapBuffers();
 }
 
 void displayReshapeCallback(int width, int height) {
 	glViewport(0, 0, width, height);
-	//TODO: add mutex?
+	// We don't add a mutex here because this is the only place that we write and we don't really care if the display is odd shaped for just a single frame.
+	windowWidth = width;
+	windowHeight = height;
 	aspectRatio = (double)width / (double)height;
 }
 
@@ -206,7 +272,7 @@ int main(int argc, char *argv[]) {
 	// Set up parameters
 	char* dataFileName;
 	if (argc < 2){
-		fprintf(stderr, "Use the correct number of args.\n");
+		fprintf(stderr, "The N-Body program requires a csv-formatted file of body data.\n");
 		return 1;
 	}
 	dataFileName = (char*)malloc(strlen(argv[1]));
@@ -232,16 +298,15 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "File \'%s\' not found in current directory.\n", dataFileName);
 		return 1;
 	}
-	fscanf(dataFile, "%d", &n);
-	if (n <= 1) {
-		fprintf(stderr, "Boring (or impossible) simulation (n=%d). Aborting.\n", n);
+	fscanf(dataFile, "%d", &numBodies);
+	if (numBodies <= 1) {
+		fprintf(stderr, "Boring (or impossible) simulation (numBodies=%d). Aborting.\n", numBodies);
 		return 1;
 	}
 	fclose(dataFile);
 	
-	// Load Bodies
-	int i = 0;
-	bodies = (body_t *)malloc(n * sizeof(body_t));
+	// Load Body Data
+	bodies = (body_t *)malloc(numBodies * sizeof(body_t));
 	CsvParser *csvparser = CsvParser_new(dataFileName, ",", 1);
 	CsvRow *row;
 	const CsvRow *header = CsvParser_getHeader(csvparser);
@@ -249,26 +314,27 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "%s\n", CsvParser_getErrorMessage(csvparser));
 		return 1;
 	}
-	// Uncomment the following if we want headers later
-	//const char **headerFields = CsvParser_getFields(header);
-	//for (i = 0 ; i < CsvParser_getNumFields(header) ; i++) {
-	//	printf("TITLE: %s\n", headerFields[i]);
-	//}
 	
-	i = 0;
-	//while((row = CsvParser_getRow(csvparser))) {
-	while(i < n) { //this reads by N rather than lines in file
+	int i = 0;
+	while(i < numBodies) {
 		row = CsvParser_getRow(csvparser);
 		const char **rowFields = CsvParser_getFields(row);
-		//read in a bunch of data
-		bodies[i].mass = atof(rowFields[1]);
-		bodies[i].radius = atof(rowFields[2]);
-		bodies[i].x = atof(rowFields[3]);
-		bodies[i].y = atof(rowFields[4]);
-		bodies[i].z = atof(rowFields[5]);
-		bodies[i].vx = atof(rowFields[6]);
-		bodies[i].vy = atof(rowFields[7]);
-		bodies[i].vz = atof(rowFields[8]);
+		
+		body_t *b = &(bodies[i]);
+		b->mass = atof(rowFields[1]);
+		b->radius = atof(rowFields[2]);
+		b->x = atof(rowFields[3]);
+		b->y = atof(rowFields[4]);
+		b->z = atof(rowFields[5]);
+		b->vx = atof(rowFields[6]);
+		b->vy = atof(rowFields[7]);
+		b->vz = atof(rowFields[8]);
+		
+		if(b->radius < minBodyRadius)
+			minBodyRadius = b->radius;
+		if(b->radius > maxBodyRadius)
+			maxBodyRadius = b->radius;
+		
 		CsvParser_destroy_row(row);
 		i++;
 	}
@@ -288,7 +354,7 @@ int main(int argc, char *argv[]) {
 	glClearColor(1, 1, 1, 1);
 	glutInitWindowSize(500, 500);
 	glutInitWindowPosition(50, 50);
-	windowID = glutCreateWindow("N-Body Simulation");
+	glutCreateWindow("N-Body Simulation");
 	
 	// Initialize Display Callbacks
 	glutDisplayFunc(displayDrawCallback);
@@ -306,7 +372,7 @@ int main(int argc, char *argv[]) {
 	glEnable(GL_DEPTH_TEST); // Enabled for the depth buffer
 	
 	// Start Display
-	glutMainLoop(); // This function never returns cause yolo
+	glutMainLoop(); // This function never returns. #YOLO
 	
 	// Clean Up
 	free(bodies);
