@@ -10,18 +10,13 @@
 #include "csvparser.h"
 
 
-
 // Model Constants
 #define GRAVITY_CONST 6.67408E-20 // Converted from m to km
-#define UPDATES_PER_SECOND 15
 
 // Display Constants
 #define VIEW_ANGLE (M_PI/6.0) // Looking down on the model from (theta) degrees
 #define ROTATION_DEGREES_PER_SECOND 5.0
 #define VIEW_DISTANCE_FACTOR 3 // Looking at origin from (factor) times as far as the farthest body
-#define LARGEST_BODY_MIN_RADIUS 0.05 // Minimum radius of the largest body relative to the display size
-#define SMALLEST_BODY_MIN_RADIUS 0.005 // Minimum radius of the smallest body relative to the display size
-
 
 
 // Structs
@@ -34,8 +29,13 @@ typedef struct {
 
 
 
+// Parameters
+double dt = 60 * 60; // 1 hour by default
+double updatesPerSecond = 100.0;
+double largestBodyMinRadius = 0.02; // Minimum radius of the largest body relative to the display size
+double smallestBodyMinRadius = 0.005; // Minimum radius of the smallest body relative to the display size
+
 // Model Globals
-double dt = 60 * 60 * 24 * 7; // 1 day by default
 long iterations = 0;
 body_t *bodies; // Array for body data
 int numBodies; // The total number of bodies
@@ -146,7 +146,7 @@ void *runSimulationThread(void *param) {
 		
 		// Wait until it is time to update again
 		clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-		long sleepTime = 1000000 / UPDATES_PER_SECOND + (start.tv_sec - end.tv_sec) * 1000000 + (start.tv_nsec - end.tv_nsec) / 1000;
+		long sleepTime = 1000000 / updatesPerSecond + (start.tv_sec - end.tv_sec) * 1000000 + (start.tv_nsec - end.tv_nsec) / 1000;
 		if(sleepTime > 0)
 			usleep(sleepTime * 1000000 / CLOCKS_PER_SEC);
 	}
@@ -167,8 +167,8 @@ void displayDrawCallback() {
 			// Compute Radius Resize Parameters
 			double rFactor = 1;
 			double rConstant = 0;
-			double lbmr = LARGEST_BODY_MIN_RADIUS * maxDistance;
-			double sbmr = SMALLEST_BODY_MIN_RADIUS * maxDistance;
+			double lbmr = largestBodyMinRadius * maxDistance;
+			double sbmr = smallestBodyMinRadius * maxDistance;
 			if(maxBodyRadius < lbmr) // Favor proportional increases required by the largest body
 				rFactor = lbmr / maxBodyRadius;
 			if(rFactor * minBodyRadius < sbmr) { // Check smallest body requirements and adjust as needed
@@ -279,10 +279,19 @@ int main(int argc, char *argv[]) {
 	strcpy(dataFileName, argv[1]);
 	
 	int option;
-	while((option = getopt(argc, argv, "t:")) != -1) {
+	while((option = getopt(argc, argv, "t:u:l:s:")) != -1) {
 		switch(option) {
 			case 't':
 				dt = atof(optarg);
+				break;
+			case 'u':
+				updatesPerSecond = atof(optarg);
+				break;
+			case 'l':
+				largestBodyMinRadius = atof(optarg);
+				break;
+			case 's':
+				smallestBodyMinRadius = atof(optarg);
 				break;
 			case '?':
 				return 1;
