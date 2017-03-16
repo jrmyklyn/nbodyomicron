@@ -19,8 +19,11 @@ Usage:
 
 OpenGL
 
+
 **Credits**
 
 [C/C++ CSV Parser](https://sourceforge.net/projects/cccsvparser/)
+
 [JPL Horizons](http://ssd.jpl.nasa.gov/horizons.cgi)
+
 [solar-system-data-retriever](https://github.com/kevinferrare/solar-system-data-retriever)
